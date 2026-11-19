@@ -8,6 +8,8 @@ from boussoles.regles import MARCHES, SEUIL, SP
 from boussoles.donnees import tout_charger
 from boussoles.calcul import tout_calculer, historique, nb, pc, cone, rang, etat_break
 from boussoles import FICHIERS
+from boussoles.modele import DEPLOIEMENT, lire_journal, completer, valoriser, ligne_journal, JOURNAL
+import json as _json
 import json
 from boussoles.titres import titres as calc_titres, THEMES, peremptions, or_titres, recalibrages, portefeuille
 from boussoles.ui import CSS, COUL, FOND, badge, chip, bar, jauge, sparkline, carte
@@ -19,6 +21,10 @@ def jour(d, court=False): return "—" if d is None or pd.isna(d) else pd.Timest
 COURT = {"SOX": "Semi-conducteurs", "Logiciel": "Logiciel", "NDX": "Nasdaq 100", "S&P 500": "S&P 500", "Mines d'or (GDX)": "Mines d'or", "Pétrolières (XLE)": "Pétrolières", "Or": "Or & mines"}
 GDXN = "Mines d'or (GDX)"
 SYMB = {"ok": "●", "warn": "▲", "bad": "■", "info": "◆", "mute": "○"}
+
+LAYOUT = dict(hovermode="x unified", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#0e1626", font=dict(color="#94a3b8", family="Inter"), dragmode=False,
+              legend=dict(orientation="h", y=-0.06, yanchor="top", x=0, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+              hoverlabel=dict(bgcolor="#121a2b", bordercolor="#334155", font_color="#e2e8f0"))     # légende sous le graphique, pas de zoom au doigt (téléphone)
 
 # ---------------------------------------------------------------- données
 @st.cache_data(ttl=6 * 3600, show_spinner="Téléchargement des cours, des taux, du dollar et des positions des spéculateurs…")
@@ -83,7 +89,10 @@ def position_regle(n, E_, TI_=None):
     """Badge d'un marché = état de la règle (familles A et B), jamais une alerte (revue_app, 18/11/2026)."""
     e = E_[n]
     if not e["reglage"]["timable"]: return "NON TIMABLE", "info", "Pétrole : aucune règle ne bat la détention (petrole_2022). Stratégie A en repère."
-    if n == "Mines d'or (GDX)": return "REPÈRE", "info", "GDX n'est pas tradé : la décision est celle de la stratégie or (onglet Or & mines)."
+    if n == "Mines d'or (GDX)":
+        if O and O.get("investie"): return "OR INVESTI", "ok", "Stratégie or investie : cœur de 2 mines + PHYS. Ordres dans la Conclusion du jour et l'onglet Or & mines."
+        nd_, na_ = (sum(O["decor"].values()), sum(O["amorce"].values())) if O else (0, 0)
+        return f"OR EN ATTENTE {nd_}/3 · {na_}/3", "mute", "Stratégie or (décor puis amorce) : achat à la clôture du jour où les six conditions sont vertes. Le cycle et le S5 de GDX ne servent que de lecture."
     t = (TI_ or {}).get(n) or {}
     if t.get("dispo"):
         niv = {"CŒUR": "ok", "LISTE DES 5": "info"}.get(t["etat"], "mute"); return t["etat"], niv, t["texte"]
@@ -190,11 +199,105 @@ def bandeau_break():
         with col: md(carte(f'<div class="lab">{lab}</div><div class="num" style="font-size:24px;font-weight:800;color:{COUL[niv]};margin-top:6px">{v_}</div><div class="small" style="margin-top:4px">{det}</div>', "card tight"))
     st.write("")
 
+@st.cache_data(show_spinner="Portefeuille modèle…", max_entries=4)
+def journal_modele(_D, jusqua, cle_):
+    j, n = completer(_D, lire_journal(), jusqua=jusqua, max_seances=40)
+    if n:
+        try: j.to_csv(JOURNAL, index=False)          # sur ton ordinateur, le journal s'allonge ; en ligne, c'est GitHub Actions qui l'écrit
+        except Exception: pass
+    return j
+
+@st.cache_data(show_spinner="Ordres du jour…", max_entries=8)
+def positions_du(_D, asof_, prec_, cle_):
+    a_, pos, B = ligne_journal(_D, asof_, None if prec_ is None else {"positions": prec_}); return str(pd.Timestamp(a_).date()), pos, bool(B.get("actif"))
+
+NOMP = {"SOX": "Semi-conducteurs", "Logiciel": "Logiciel", "NDX": "Nasdaq 100", "Or": "Or · mines + PHYS"}
+
+def ordres_du_jour(PF):
+    """Ordres à l'impératif : ce que la règle impose à la clôture de la séance analysée."""
+    idx = seances[seances < pd.Timestamp(asof)]
+    if not len(idx) or not PF: return
+    _, pos0, _ = positions_du(D, idx[-1], None, cle)
+    _, pos1, k2 = positions_du(D, pd.Timestamp(asof), _json.dumps(pos0), cle)
+    dd = (cap_now / cap_hi - 1) if cap_hi > 0 and cap_now > 0 else None
+    cap = cap_now if cap_now > 0 else None
+    def fmt(L): return " · ".join(f"<b>{t}</b> {nb(w * 100, 1)} %" + (f" ({w * cap:,.0f} $)".replace(",", " ") if cap else "") for t, w in L)
+    cartes = []
+    for n in ["SOX", "Logiciel", "NDX", "Or"]:
+        p_ = PF["parts"].get(n)
+        if p_ is None: continue
+        a, b = pos0.get(n, []), pos1.get(n, [])
+        ta, tb = {t for t, _ in a}, {t for t, _ in b}; wa, wb = sum(w for _, w in a), sum(w for _, w in b)
+        if dd is not None and dd <= -0.30: o, niv, det = "TOUT VENDRE", "bad", "Break : capital à −30 % de son plus haut."
+        elif b and not a: o, niv, det = "ACHETER À LA CLÔTURE", "ok", fmt(b)
+        elif a and not b: o, niv, det = "VENDRE À LA CLÔTURE", "bad", fmt(a)
+        elif a and b and ta != tb: o, niv, det = "REMPLACER À LA CLÔTURE", "warn", "vendre " + ", ".join(sorted(ta - tb)) + " · acheter " + fmt([x for x in b if x[0] not in ta])
+        elif a and b and abs(wb - wa) >= 0.005: o, niv, det = f"AJUSTER À {nb(wb * 100, 0)} %", "info", fmt(b)
+        elif a and b: o, niv, det = "TENIR", "ok", fmt(b)
+        elif k2 and p_.get("dedans"): o, niv, det = "INTERDIT D'ACHETER (K2)", "bad", "Le signal est là, mais le blocage K2 interdit toute entrée nouvelle."
+        else:
+            o, niv = "RESTER EN CASH", "mute"
+            if n == "Or":
+                nd, na = sum(O["decor"].values()), sum(O["amorce"].values())
+                det = f"Décor {nd}/3, amorce {na}/3. Acheter à la clôture du jour où les six conditions sont vertes : {' · '.join(p_.get('tient_si', [])).replace('%)', ' %)') or 'cœur de 2 mines + PHYS'}, {nb(p_['poids'] * 100, 0)} % du capital."
+            else:
+                e = E[n]; det = ("Acheter à la clôture du prochain S5." if e["A"]["investie"] else "Acheter à la clôture du prochain S7 (nouveau cycle) ou S5.") + f" Poids prévu {nb(p_['poids'] * 100, 0)} %."
+        cartes.append((NOMP[n], o, niv, det))
+    md('<div class="lab" style="margin:14px 0 6px">Ordres du jour · à exécuter à la clôture (ordre au cours de clôture), sans exception</div>')
+    for col, (nom, o, niv, det) in zip(st.columns(len(cartes)), cartes):
+        with col: md(carte(f'<div class="lab">{nom}</div><div style="font-size:17px;font-weight:800;letter-spacing:.03em;color:{COUL[niv] if niv != "mute" else "#cbd5e1"};margin:8px 0 6px">{o}</div><div class="small">{det}</div>', "card tight", f"border-top:3px solid {COUL[niv]}"))
+    md('<div class="small" style="margin:-4px 0 10px">Si ton portefeuille réel diffère du modèle, aligne-le sur lui à la clôture (sauf blocage K2 : aucune part nouvelle). Les montants supposent le capital saisi dans la barre latérale.</div>')
+
+def bloc_modele():
+    """Portefeuille modèle du système depuis le déploiement."""
+    md(f'<div class="sec">Portefeuille modèle · le système appliqué à la lettre depuis le {jour(DEPLOIEMENT)}</div>')
+    j = journal_modele(D, pd.Timestamp(asof), cle)
+    tc = (D.get("titres") or {}).get("close", pd.DataFrame())
+    v = valoriser(j, tc) if len(j) else pd.Series(dtype=float)
+    if pd.Timestamp(asof) < DEPLOIEMENT or len(j) == 0:
+        md(carte(f'<div class="txt">Suivi à partir du {jour(DEPLOIEMENT)} : la première ligne s’écrit à la clôture de cette séance, la première performance à la suivante.</div>', "card tight")); return
+    v = v.loc[:pd.Timestamp(asof)]; last = json.loads(j[pd.to_datetime(j.date) <= pd.Timestamp(asof)].iloc[-1].positions)
+    perf = v.iloc[-1] / 100 - 1; pire = (v / v.cummax() - 1).min()
+    def bench(serie):
+        x = serie.loc[DEPLOIEMENT:pd.Timestamp(asof)].dropna(); return x.iloc[-1] / x.iloc[0] - 1 if len(x) > 1 else 0.0
+    sp, ndx = bench(D[SP]), bench(D["NDX"]) if "NDX" in D else 0.0
+    inv = sum(w for L in last.values() for _, w in L); cap = cap_now if cap_now > 0 else None
+    kpi = [("Depuis le déploiement", pc(perf), "ok" if perf >= 0 else "bad", f"{len(v) - 1} séance{'s' if len(v) > 2 else ''} · base 100 → {nb(v.iloc[-1], 2)}"),
+           ("Contre le S&P 500", pc(perf - sp), "ok" if perf >= sp else "bad", f"S&P {pc(sp)} · Nasdaq 100 {pc(ndx)}"),
+           ("Pire baisse du modèle", pc(pire), "warn" if pire < -0.10 else "ok", "break à −30 %"),
+           ("Investi / cash", f"{nb(inv * 100, 0)} % / {nb((1 - inv) * 100, 0)} %", "info", "positions de la dernière clôture")]
+    for col, (lab, v_, niv, det) in zip(st.columns(4), kpi):
+        with col: md(carte(f'<div class="lab">{lab}</div><div class="num" style="font-size:28px;font-weight:800;color:{COUL[niv] if niv != "info" else "#f8fafc"};margin-top:6px">{v_}</div><div class="small" style="margin-top:4px">{det}</div>', "card tight"))
+    if last:
+        rows = ""
+        for n, L in last.items():
+            for t, w in L:
+                x = tc[t].loc[DEPLOIEMENT:pd.Timestamp(asof)].dropna() if t in tc else pd.Series(dtype=float)
+                rows += (f'<tr><td style="padding:8px 10px;border-bottom:1px solid #1a2436;color:#94a3b8">{NOMP.get(n, n)}</td><td style="padding:8px 10px;border-bottom:1px solid #1a2436;font-weight:700;color:#f8fafc">{t}</td>'
+                         f'<td class="num" style="padding:8px 10px;border-bottom:1px solid #1a2436;text-align:right">{nb(w * 100, 1)} %</td>'
+                         + (f'<td class="num" style="padding:8px 10px;border-bottom:1px solid #1a2436;text-align:right">{w * cap:,.0f} $</td>'.replace(",", " ") if cap else "")
+                         + f'<td class="num" style="padding:8px 10px;border-bottom:1px solid #1a2436;text-align:right">{nb(x.iloc[-1]) if len(x) else "—"}</td></tr>')
+        hd = "".join(f'<th style="text-align:{a};padding:8px 10px;color:#64748b;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;border-bottom:1px solid #263244">{h}</th>'
+                     for h, a in [("Part", "left"), ("Titre", "left"), ("Poids", "right")] + ([("Montant", "right")] if cap else []) + [("Cours", "right")])
+        md(carte(f'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px"><tr>{hd}</tr>{rows}</table></div>', "card", "padding:6px 8px"))
+    if len(v) > 1:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=v.index, y=v.values, name="Portefeuille modèle", line=dict(color="#22c55e", width=2.4)))
+        for nom_, ser, col_ in [("S&P 500", D[SP], "#94a3b8"), ("Nasdaq 100", D.get("NDX"), "#60a5fa")]:
+            if ser is None: continue
+            x = ser.loc[DEPLOIEMENT:pd.Timestamp(asof)].dropna()
+            if len(x) > 1: fig.add_trace(go.Scatter(x=x.index, y=100 * x / x.iloc[0], name=nom_, line=dict(color=col_, width=1.4, dash="dot")))
+        fig.update_layout(height=300, margin=dict(l=8, r=8, t=10, b=8), **LAYOUT); fig.update_yaxes(gridcolor="#1a2438"); fig.update_xaxes(showgrid=False)
+        st.plotly_chart(fig, width="stretch", config=dict(displayModeBar=False, scrollZoom=False))
+    st.write("")
+
 def conclusion_du_jour(PF):
     md('<div class="sec">Conclusion du jour · la règle décide, le décor éclaire</div>')
     md('<div class="lab" style="margin:4px 0 6px">Break · il l’emporte sur toutes les règles</div>')
     bandeau_break()
     if not PF: st.info("Conclusion indisponible : titres ou poids non calculés."); return
+    try: ordres_du_jour(PF)
+    except Exception as ex: st.caption(f"Ordres du jour indisponibles : {ex}")
     fam_c, fam_d = alertes_decor(PF); allc = [n for n, v in fam_c if v]; alld = [n for n, v in fam_d if v]
     NOMP = {"SOX": "Semi-conducteurs", "Logiciel": "Logiciel", "NDX": "Nasdaq 100", "Or": "Or · mines + PHYS"}
     def statut(txt, niv, det=""):
@@ -350,6 +453,8 @@ def bloc_mini(e, lois):
 with t1:
     try: PF = portefeuille(E, C, TI, or_titres(O, D.get("titres"), asof, D.get("Mines d'or (GDX)", pd.Series(dtype=float)).loc[:asof], MARCHES["Mines d'or (GDX)"]["mini"]) if O else None, O, D.get("titres"), asof)
     except Exception: PF = None
+    try: bloc_modele()
+    except Exception as ex: st.caption(f"Portefeuille modèle indisponible : {ex}")
     md('<div class="sec">Climat du mini-cycle · VIX et dollar (le décor macro est dans l’onglet Macro)</div>')
     vx, q8 = C["vix"], C["vix_q80"]; dE = C["seances_depuis_e80"]; vm5 = C["vix_max5"]
     if vx >= 30: pe, pn = "PANIQUE", "bad"
@@ -408,8 +513,7 @@ with t1:
     conclusion_du_jour(PF)
 
 # ================================================================ MARCHÉS
-LAYOUT = dict(hovermode="x unified", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#0e1626", font=dict(color="#94a3b8", family="Inter"),
-              legend=dict(orientation="h", y=1.05, x=0, bgcolor="rgba(0,0,0,0)"), hoverlabel=dict(bgcolor="#121a2b", bordercolor="#334155", font_color="#e2e8f0"))
+
 
 def graphique(e, nj):
     s = e["s"].iloc[-nj:]; vix = C["vix_serie"].reindex(s.index).ffill(); q80 = C["q80_serie"].reindex(s.index).ffill()
@@ -424,12 +528,12 @@ def graphique(e, nj):
         fig.add_trace(go.Scatter(x=[fut[hh], fut[hh]], y=[Q[hh, 0], Q[hh, 4]], mode="lines+markers", line=dict(color="#93c5fd", width=1, dash="dot"), marker=dict(size=5, color="#93c5fd"),
                                  showlegend=False, hovertemplate=f"Dans {hh} séances : 80 % de chances entre {nb(Q[hh, 0])} et {nb(Q[hh, 4])} (médiane {nb(Q[hh, 2])})<extra></extra>"), 1, 1)
     for k in (0, 2, 4):
-        fig.add_annotation(x=fut[-1], y=Q[-1, k], text=f"<b>{nb(Q[-1, k], 0)}</b>", showarrow=False, xanchor="left", font=dict(color="#93c5fd", size=12 if k != 2 else 11), row=1, col=1)
+        fig.add_annotation(x=fut[-1], y=Q[-1, k], text=f"<b>{nb(Q[-1, k], 0)}</b>", showarrow=False, xanchor="left", font=dict(color="#93c5fd", size=10.5), row=1, col=1)
     fig.add_trace(go.Scatter(x=s.index, y=s.values, name="Cours", line=dict(color="#e2e8f0", width=2), hovertemplate="%{y:,.2f}<extra>Cours</extra>"), 1, 1)
     for nom_sig, col, sym, lab in [("S5", COUL["ok"], "triangle-up", "Creux S5"), ("P4", COUL["warn"], "triangle-down", "Pic P4"), ("S7", "#60a5fa", "star", "Creux de cycle S7")]:
         sg = e["series"][nom_sig].reindex(s.index).fillna(False).astype(bool); sg = sg & ~sg.shift(1, fill_value=False)
         if sg.any(): fig.add_trace(go.Scatter(x=s.index[sg], y=s[sg] * (0.985 if nom_sig != "P4" else 1.015), mode="markers", name=lab,
-                                              marker=dict(color=col, size=12, symbol=sym, line=dict(color="#0a0f1c", width=1.5)), hovertemplate=f"{lab}<extra></extra>"), 1, 1)
+                                              marker=dict(color=col, size=9, symbol=sym, line=dict(color="#0a0f1c", width=1)), hovertemplate=f"{lab}<extra></extra>"), 1, 1)
     m = e["mini"]
     niv = [("Sortie du cycle (A)", e["A"]["niveau_sortie"], COUL["bad"]), ("Couteau S5", e["S5"]["invalidation"] if e["S5"]["valide"] else None, "#fb7185"),
            ("Non-retour", m["niveau_non_retour"], COUL["warn"]), ("Fin de correction", m["niveau_confirmation"], COUL["ok"]),
@@ -439,14 +543,14 @@ def graphique(e, nj):
         proche = prev is not None and abs(y / prev - 1) < 0.03          # deux niveaux voisins : on décale l'étiquette
         fig.add_shape(type="line", x0=s.index[0], x1=fut[-1], y0=y, y1=y, line=dict(color=col, width=1.4, dash="dash"), row=1, col=1)
         fig.add_annotation(x=s.index[0] if not proche else s.index[len(s) // 3], y=y, text=f"{lab} · {nb(y)}", showarrow=False, xanchor="left",
-                           yanchor="bottom" if not proche else "top", font=dict(color=col, size=11.5), row=1, col=1)
+                           yanchor="bottom" if not proche else "top", font=dict(color=col, size=10.5), bgcolor="rgba(10,15,28,.75)", borderpad=2, row=1, col=1)
         prev = y
     fig.add_trace(go.Scatter(x=q80.index, y=q80.values, name="Seuil de peur (80e)", line=dict(color="#64748b", width=1.5, dash="dot"), hovertemplate="%{y:.1f}<extra>seuil</extra>"), 2, 1)
     fig.add_trace(go.Scatter(x=vix.index, y=np.maximum(vix.values, q80.values), fill="tonexty", fillcolor="rgba(239,68,68,.25)", line=dict(width=0), showlegend=False, hoverinfo="skip"), 2, 1)
     fig.add_trace(go.Scatter(x=vix.index, y=vix.values, name="VIX", line=dict(color="#a78bfa", width=1.8), hovertemplate="%{y:.1f}<extra>VIX</extra>"), 2, 1)
     E8 = [d for d in C["e80_dates"] if d >= s.index[0]]
     if E8: fig.add_trace(go.Scatter(x=E8, y=vix.reindex(E8).values, mode="markers", name="VIX entre dans la peur", marker=dict(color="#f472b6", size=9, symbol="diamond")), 2, 1)
-    fig.update_layout(height=640, margin=dict(l=8, r=60, t=10, b=8), **LAYOUT)
+    fig.update_layout(height=620, margin=dict(l=4, r=52, t=6, b=8), **LAYOUT)
     fig.update_xaxes(showgrid=False, linecolor="#1e293b"); fig.update_yaxes(gridcolor="#1a2438", zeroline=False); fig.update_yaxes(title_text="VIX", row=2, col=1)
     return fig
 
@@ -549,9 +653,9 @@ def vue_or():
     nd, na = sum(O["decor"].values()), sum(O["amorce"].values()); b = O["budget"]
     etat = ("INVESTIE", "ok") if O["investie"] else (("DÉCOR PRÊT", "warn") if nd == 3 else ("EN ATTENTE", "mute"))
     c1, c2, c3 = st.columns([1.4, 1, 1])
-    manque = f"Il manque {3 - nd} condition{'s' if 3 - nd > 1 else ''} de décor et {3 - na} d’amorce. On ne force pas : la règle a fait 4 entrées depuis 2013."
+    manque = f"Ordre : ne rien acheter. Il manque {3 - nd} condition{'s' if 3 - nd > 1 else ''} de décor et {3 - na} d’amorce. Achat à la clôture du jour où les six sont vertes, sans attendre ni anticiper."
     with c1: md(carte(f'<div class="lab">Stratégie or · mines (cœur de 2) + PHYS</div><div style="margin:10px 0">{badge(etat[0], etat[1], True)}</div>'
-                      f'<div class="txt">{"En position. Les trois sorties ci-dessous sont actives." if O["investie"] else ("Le décor est complet : l’entrée viendra avec l’amorce." if nd == 3 else manque)}</div>'
+                      f'<div class="txt">{"Ordre : tenir. Vendre à la clôture du jour où l’une des trois sorties ci-dessous est franchie." if O["investie"] else ("Ordre : ne rien acheter tant que l’amorce n’est pas à 3/3 ; acheter à la clôture du jour où elle l’est." if nd == 3 else manque)}</div>'
                       f'<div class="row" style="margin-top:12px"><span class="small">Or <b class="num" style="color:#e2e8f0">{nb(O["or_prix"], 1)}</b></span><span class="small">GDX <b class="num" style="color:#e2e8f0">{nb(O["gdx"])}</b></span><span class="small">GVZ <b class="num" style="color:#e2e8f0">{nb(O["gvz"], 1)}</b></span></div>'
                       + (delta(f"{d2} : décor {sum(O2['decor'].values())}/3, amorce {sum(O2['amorce'].values())}/3, budget {O2['budget']['part']:.0%}") if R2 and O2 else "")))
     with c2: md(carte(f'<div class="lab">Conditions remplies</div><div class="row" style="margin-top:6px"><div><div class="num" style="font-size:44px;font-weight:800;color:{COUL["ok"] if nd == 3 else "#f8fafc"}">{nd}<span style="font-size:20px;color:#64748b">/3</span></div><div class="small">décor</div></div>'
@@ -577,8 +681,8 @@ def vue_or():
         st.write("")
     g_ = E.get("Mines d'or (GDX)")
     if g_:
-        md('<div class="sec">2 · Repères GDX · lecture seule</div>')
-        md('<div class="small" style="margin-bottom:8px">Mini-cycle, S5 or (repère, ne pas trader dessus) et carte des prix, calculés sur l’ETF GDX, que tu ne trades pas. La décision est celle du point 1 (stratégie or, P4 2022).</div>')
+        md('<div class="sec">2 · Lecture du marché des mines (GDX) · le S5 et le P4 de GDX ne donnent pas d’ordre (écartés le 17/11 : ils dégradaient la stratégie or)</div>')
+        md('<div class="small" style="margin-bottom:8px">Mini-cycle, S5 or (repère, ne pas trader dessus) et carte des prix, calculés sur l’ETF GDX, que tu ne trades pas. Les ordres viennent du point 1 seulement : ne jamais acheter ni vendre l’or sur ces repères.</div>')
         tuiles_marche(g_, repere=True)
         pg = st.segmented_control("Période GDX", ["3 mois", "6 mois", "1 an", "3 ans", "10 ans"], default="1 an", label_visibility="collapsed", key="per_gdx_rep") or "1 an"
         st.plotly_chart(graphique(g_, {"3 mois": 63, "6 mois": 126, "1 an": 252, "3 ans": 756, "10 ans": 2520}[pg]), width="stretch", config=dict(displayModeBar=False))
@@ -595,7 +699,7 @@ def vue_or():
     fig.update_layout(height=520, margin=dict(l=8, r=8, t=10, b=8), **LAYOUT)
     fig.update_xaxes(showgrid=False); fig.update_yaxes(gridcolor="#1a2438", zeroline=False); fig.update_yaxes(range=[g.min() * 0.9, g.max() * 1.05], row=1, col=1)
     st.plotly_chart(fig, width="stretch", config=dict(displayModeBar=False))
-    md('<div class="sec">Sorties (actives une fois investi)</div>')
+    md('<div class="sec">Sorties · vendre à la clôture dès que l’une est franchie (une fois investi)</div>')
     nv = O["niveaux"] or {}
     sx = [("Stop de départ", "GDX −10 %", nb(nv.get("stop_depart")) if nv.get("stop_depart") else "—", "tant que GDX n'a pas fait +10 % depuis l'entrée"),
           ("Recul de l'or", "or −13 %", nb(nv.get("or_moins13"), 1) if nv else "—", "depuis son plus haut depuis l'entrée"),

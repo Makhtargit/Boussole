@@ -56,6 +56,11 @@
 ---
 # Annexe · historique des versions
 
+## v6.7 (19/11/2026)
+- Ordres du jour à l'impératif en tête de la Conclusion (ACHETER / VENDRE / REMPLACER / AJUSTER / TENIR / RESTER EN CASH / INTERDIT K2), avec les montants si le capital est saisi. Onglet or : ordres à l'impératif, repères GDX hors des ordres.
+- Portefeuille modèle dans la vue d'ensemble : le système appliqué à la lettre depuis le 19/11/2026, comparé au S&P 500 et au Nasdaq 100 (boussoles/modele.py, journal fichiers/journal_modele.csv écrit chaque soir par fichiers/journal_modele.py).
+- Graphiques sur téléphone : légende sous le graphique, pas de zoom au doigt, étiquettes de niveaux sur fond.
+
 ## v6.6 (19/11/2026)
 - Téléphone : barre latérale repliée sur petit écran, tableau des positions défilant, lanceur lancer_telephone.bat (accès depuis le téléphone sur le même Wi-Fi ou par Tailscale).
 - Cœur permanent : la liste des 5 n'est plus détenue ; un couteau touché en cycle ouvert garde le cœur (coeur_permanent). Exécution à la clôture du jour du signal (timing_entree).

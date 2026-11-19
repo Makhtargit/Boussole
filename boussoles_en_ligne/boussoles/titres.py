@@ -164,7 +164,7 @@ def portefeuille(E, C, TI, OT, O, T, asof, plancher=0.05):
         parts[n] = dict(s=e["s"], pos=pos, dedans=dedans, etat=TI[n]["etat"] if dedans else "CASH", tient=TI[n]["coeur"] if TI[n]["etat"] == "CŒUR" else (TI[n]["liste"] if dedans else ["cash"]))
     mk = "Mines d'or (GDX)"
     if O is not None and OT is not None and mk in E:
-        parts["Or"] = dict(s=E[mk]["s"], pos=O["position"], dedans=bool(O["investie"]), etat=OT["etat"], tient=OT["tient"] if O["investie"] else ["cash"])
+        parts["Or"] = dict(s=E[mk]["s"], pos=O["position"], dedans=bool(O["investie"]), etat=OT["etat"], tient=OT["tient"] if O["investie"] else ["cash"], tient_si=OT["tient"])
     # poids : fin du mois précédent la séance analysée (ou la séance même si c'est une fin de mois)
     idx = next(iter(parts.values()))["s"].loc[:asof].index
     a = pd.Timestamp(asof)

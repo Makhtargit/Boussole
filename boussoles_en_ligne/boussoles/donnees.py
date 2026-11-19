@@ -108,7 +108,7 @@ def titres_cours():
     try:
         c = pd.read_csv(os.path.join(FICHIERS, "compositions_actuelles.csv"))
         N = pd.read_csv(os.path.join(FICHIERS, "ndx_membres.csv"))
-        tk = sorted({str(t).replace(".", "-") for t in list(c.ticker.dropna()) + list(N[N.date == N.date.max()].ticker)} | {"XLP"})
+        tk = sorted({str(t).replace(".", "-") for t in list(c.ticker.dropna()) + list(N[N.date == N.date.max()].ticker)} | {"XLP", "PHYS"})
         import yfinance as yf
         df = yf.download(tk, period="10y", auto_adjust=False, progress=False, threads=True)
         cl, vo = df["Close"], df["Volume"]

@@ -42,3 +42,12 @@ L'application tourne chez Streamlit et s'ouvre sur le téléphone comme un site.
 
 ## Si l'application s'endort
 Une application gratuite qu'on n'ouvre pas pendant quelques jours s'endort. À l'ouverture, clique « Yes, get this app back up » : elle redémarre en une minute.
+
+## Le portefeuille modèle et son journal (une seule fois, 5 minutes)
+Le bloc « Portefeuille modèle » de la vue d'ensemble suit le système à la lettre depuis le 19/11/2026. Son journal (`fichiers/journal_modele.csv`) s'écrit chaque soir sur les serveurs de GitHub, ce qui fonctionne même ordinateur éteint.
+1. Sur la page du dépôt : « Add file » → « Create new file ».
+2. Nom du fichier : `.github/workflows/journal.yml` (à la racine du dépôt, pas dans `boussoles_en_ligne`).
+3. Colle le contenu du fichier `journal.yml` que je t'ai envoyé, puis « Commit changes ».
+4. Dépôt → « Settings » → « Actions » → « General » → tout en bas, « Workflow permissions » : coche **« Read and write permissions »**, puis « Save ».
+5. Onglet « Actions » → « Journal du portefeuille modèle » → « Run workflow » pour le premier passage. Ensuite il tourne seul chaque soir de semaine à 22 h 20 (UTC).
+6. Chaque passage ajoute la séance du jour ; l'application en ligne se relance avec le nouveau journal. Le vendredi, il renvoie aussi le cache des cours, utile si Yahoo bloque les serveurs de Streamlit.

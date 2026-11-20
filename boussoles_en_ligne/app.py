@@ -66,6 +66,19 @@ with st.sidebar:
         except Exception: pass
     st.caption("En ligne, la valeur par défaut vient des réglages secrets (section [capital]) ; une saisie ne dure que la visite."
                if _sec else "Reste sur ton ordinateur (fichiers/capital.json).")
+    st.divider(); st.markdown("**Parts que je trade**")
+    _pf = Path(FICHIERS) / "preferences.json"
+    try: _sec_ex = list(st.secrets.get("parts", {}).get("exclues", []))
+    except Exception: _sec_ex = []
+    try: _ex0 = json.loads(_pf.read_text()).get("exclues", _sec_ex)
+    except Exception: _ex0 = _sec_ex
+    _PARTS = {"SOX": "Semi-conducteurs", "Logiciel": "Logiciel", "NDX": "Nasdaq 100", "Or": "Or"}
+    _sel = st.multiselect("Parts tradées", list(_PARTS), default=[k for k in _PARTS if k not in _ex0], format_func=lambda k: _PARTS[k], label_visibility="collapsed")
+    EXCLUES = [k for k in _PARTS if k not in _sel]
+    if EXCLUES != _ex0:
+        try: _pf.write_text(json.dumps({"exclues": EXCLUES}))
+        except Exception: pass
+    st.caption("Une part exclue reste en cash ; les autres gardent leurs poids (sans semis : ≈ −16 pts/an sur 2016-2026, voir sans_sox).")
     st.divider(); st.markdown("**Péremption**")
     PER = peremptions()
     for lab, ech, j in PER:
@@ -221,13 +234,30 @@ def ordres_du_jour(PF):
     _, pos1, k2 = positions_du(D, pd.Timestamp(asof), _json.dumps(pos0), cle)
     dd = (cap_now / cap_hi - 1) if cap_hi > 0 and cap_now > 0 else None
     cap = cap_now if cap_now > 0 else None
-    def fmt(L): return " · ".join(f"<b>{t}</b> {nb(w * 100, 1)} %" + (f" ({w * cap:,.0f} $)".replace(",", " ") if cap else "") for t, w in L)
+    tc_ = (D.get("titres") or {}).get("close", pd.DataFrame())
+    def prix(t):
+        try: x = tc_[t].loc[:pd.Timestamp(asof)].dropna(); return float(x.iloc[-1]) if len(x) else None
+        except Exception: return None
+    def fmt(L):
+        """Actions entières seulement : on arrondit à l'action inférieure, le reste reste en cash."""
+        out = []
+        for t, w in L:
+            pr = prix(t)
+            if cap and pr:
+                q = int(w * cap // pr)
+                out.append(f"<b>{t}</b> {q} action{'s' if q > 1 else ''} ({q * pr:,.0f} $)".replace(",", " ") if q > 0
+                           else f"<b>{t}</b> 0 action (1 action = {pr:,.0f} $, au-dessus des {w * cap:,.0f} $ prévus)".replace(",", " "))
+            else: out.append(f"<b>{t}</b> {nb(w * 100, 1)} %")
+        return " · ".join(out)
     cartes = []
     for n in ["SOX", "Logiciel", "NDX", "Or"]:
         p_ = PF["parts"].get(n)
         if p_ is None: continue
         a, b = pos0.get(n, []), pos1.get(n, [])
         ta, tb = {t for t, _ in a}, {t for t, _ in b}; wa, wb = sum(w for _, w in a), sum(w for _, w in b)
+        if n in EXCLUES:
+            sys_ = ("acheter" if b and not a else ("vendre" if a and not b else ("tenir" if a and b else "rester en cash")))
+            cartes.append((NOMP[n], "EXCLUE · CASH", "mute", f"Part exclue par toi : ne rien acheter. Le système dirait : {sys_}" + (f" ({fmt(b)})" if b else "") + ".")); continue
         if dd is not None and dd <= -0.30: o, niv, det = "TOUT VENDRE", "bad", "Break : capital à −30 % de son plus haut."
         elif b and not a: o, niv, det = "ACHETER À LA CLÔTURE", "ok", fmt(b)
         elif a and not b: o, niv, det = "VENDRE À LA CLÔTURE", "bad", fmt(a)
@@ -242,21 +272,34 @@ def ordres_du_jour(PF):
                 det = f"Décor {nd}/3, amorce {na}/3. Acheter à la clôture du jour où les six conditions sont vertes : {' · '.join(p_.get('tient_si', [])).replace('%)', ' %)') or 'cœur de 2 mines + PHYS'}, {nb(p_['poids'] * 100, 0)} % du capital."
             else:
                 e = E[n]; det = ("Acheter à la clôture du prochain S5." if e["A"]["investie"] else "Acheter à la clôture du prochain S7 (nouveau cycle) ou S5.") + f" Poids prévu {nb(p_['poids'] * 100, 0)} %."
+        if n != "Or":                                  # lecture « cycle fragile » (pres_sortie, cycle_fragile : information, pas une règle)
+            try:
+                e = E[n]; A = e["A"]
+                if A["investie"]:
+                    th_ = e["seuil_cycle"]; hiA = A["niveau_sortie"] / (1 - th_); s_ = e["s"]
+                    dh = s_[s_ >= hiA * 0.9999].index
+                    if len(dh):
+                        bas = s_.loc[dh[-1]:]; dmin = bas.min() / A["niveau_sortie"] - 1
+                        if dmin < 0.10: det += f'<div style="margin-top:6px;color:{COUL["warn"]}">Cycle fragile : passé à {pc(dmin)} de sa sortie le {jour(bas.idxmin())}. Le poids est déjà réduit (fin de cycle proche × 0,5).</div>'
+            except Exception: pass
         cartes.append((NOMP[n], o, niv, det))
     md('<div class="lab" style="margin:14px 0 6px">Ordres du jour · à exécuter à la clôture (ordre au cours de clôture), sans exception</div>')
     for col, (nom, o, niv, det) in zip(st.columns(len(cartes)), cartes):
         with col: md(carte(f'<div class="lab">{nom}</div><div style="font-size:17px;font-weight:800;letter-spacing:.03em;color:{COUL[niv] if niv != "mute" else "#cbd5e1"};margin:8px 0 6px">{o}</div><div class="small">{det}</div>', "card tight", f"border-top:3px solid {COUL[niv]}"))
-    md('<div class="small" style="margin:-4px 0 10px">Si ton portefeuille réel diffère du modèle, aligne-le sur lui à la clôture (sauf blocage K2 : aucune part nouvelle). Les montants supposent le capital saisi dans la barre latérale.</div>')
+    md('<div class="small" style="margin:-4px 0 10px">Si ton portefeuille réel diffère du modèle, aligne-le sur lui à la clôture (sauf blocage K2 : aucune part nouvelle). Actions entières seulement : chaque quantité est arrondie à l’action inférieure et le reste reste en cash. Les quantités supposent le capital saisi dans la barre latérale ; sans capital, l’ordre donne les poids.</div>')
 
 def bloc_modele():
     """Portefeuille modèle du système depuis le déploiement."""
     md(f'<div class="sec">Portefeuille modèle · le système appliqué à la lettre depuis le {jour(DEPLOIEMENT)}</div>')
     j = journal_modele(D, pd.Timestamp(asof), cle)
     tc = (D.get("titres") or {}).get("close", pd.DataFrame())
-    v = valoriser(j, tc) if len(j) else pd.Series(dtype=float)
+    v_sys = valoriser(j, tc) if len(j) else pd.Series(dtype=float)
+    v = valoriser(j, tc, exclues=EXCLUES) if len(j) and EXCLUES else v_sys
     if pd.Timestamp(asof) < DEPLOIEMENT or len(j) == 0:
         md(carte(f'<div class="txt">Suivi à partir du {jour(DEPLOIEMENT)} : la première ligne s’écrit à la clôture de cette séance, la première performance à la suivante.</div>', "card tight")); return
-    v = v.loc[:pd.Timestamp(asof)]; last = json.loads(j[pd.to_datetime(j.date) <= pd.Timestamp(asof)].iloc[-1].positions)
+    v = v.loc[:pd.Timestamp(asof)]; v_sys = v_sys.loc[:pd.Timestamp(asof)]
+    last = {k: L for k, L in json.loads(j[pd.to_datetime(j.date) <= pd.Timestamp(asof)].iloc[-1].positions).items() if k not in EXCLUES}
+    if EXCLUES: md(f'<div class="small" style="margin:-2px 0 8px">Ta version : parts exclues ({", ".join(NOMP.get(k, k) for k in EXCLUES)}) en cash. Système complet depuis le déploiement : {pc(v_sys.iloc[-1] / 100 - 1)}.</div>')
     perf = v.iloc[-1] / 100 - 1; pire = (v / v.cummax() - 1).min()
     def bench(serie):
         x = serie.loc[DEPLOIEMENT:pd.Timestamp(asof)].dropna(); return x.iloc[-1] / x.iloc[0] - 1 if len(x) > 1 else 0.0
@@ -266,8 +309,8 @@ def bloc_modele():
            ("Contre le S&P 500", pc(perf - sp), "ok" if perf >= sp else "bad", f"S&P {pc(sp)} · Nasdaq 100 {pc(ndx)}"),
            ("Pire baisse du modèle", pc(pire), "warn" if pire < -0.10 else "ok", "break à −30 %"),
            ("Investi / cash", f"{nb(inv * 100, 0)} % / {nb((1 - inv) * 100, 0)} %", "info", "positions de la dernière clôture")]
-    for col, (lab, v_, niv, det) in zip(st.columns(4), kpi):
-        with col: md(carte(f'<div class="lab">{lab}</div><div class="num" style="font-size:28px;font-weight:800;color:{COUL[niv] if niv != "info" else "#f8fafc"};margin-top:6px">{v_}</div><div class="small" style="margin-top:4px">{det}</div>', "card tight"))
+    for col, (lab, v_, niv, det) in zip(st.columns(len(kpi)), kpi):
+        with col: md(carte(f'<div class="lab">{lab}</div><div class="num" style="font-size:28px;font-weight:800;color:{COUL[niv] if niv not in ("info", "mute") else "#f8fafc"};margin-top:6px">{v_}</div><div class="small" style="margin-top:4px">{det}</div>', "card tight"))
     if last:
         rows = ""
         for n, L in last.items():
@@ -275,14 +318,15 @@ def bloc_modele():
                 x = tc[t].loc[DEPLOIEMENT:pd.Timestamp(asof)].dropna() if t in tc else pd.Series(dtype=float)
                 rows += (f'<tr><td style="padding:8px 10px;border-bottom:1px solid #1a2436;color:#94a3b8">{NOMP.get(n, n)}</td><td style="padding:8px 10px;border-bottom:1px solid #1a2436;font-weight:700;color:#f8fafc">{t}</td>'
                          f'<td class="num" style="padding:8px 10px;border-bottom:1px solid #1a2436;text-align:right">{nb(w * 100, 1)} %</td>'
-                         + (f'<td class="num" style="padding:8px 10px;border-bottom:1px solid #1a2436;text-align:right">{w * cap:,.0f} $</td>'.replace(",", " ") if cap else "")
+                         + (f'<td class="num" style="padding:8px 10px;border-bottom:1px solid #1a2436;text-align:right">{int(w * cap // x.iloc[-1]) if len(x) else 0} · {(int(w * cap // x.iloc[-1]) * x.iloc[-1] if len(x) else 0):,.0f} $</td>'.replace(",", " ") if cap else "")
                          + f'<td class="num" style="padding:8px 10px;border-bottom:1px solid #1a2436;text-align:right">{nb(x.iloc[-1]) if len(x) else "—"}</td></tr>')
         hd = "".join(f'<th style="text-align:{a};padding:8px 10px;color:#64748b;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;border-bottom:1px solid #263244">{h}</th>'
-                     for h, a in [("Part", "left"), ("Titre", "left"), ("Poids", "right")] + ([("Montant", "right")] if cap else []) + [("Cours", "right")])
+                     for h, a in [("Part", "left"), ("Titre", "left"), ("Poids", "right")] + ([("Actions · montant", "right")] if cap else []) + [("Cours", "right")])
         md(carte(f'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px"><tr>{hd}</tr>{rows}</table></div>', "card", "padding:6px 8px"))
     if len(v) > 1:
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=v.index, y=v.values, name="Portefeuille modèle", line=dict(color="#22c55e", width=2.4)))
+        fig.add_trace(go.Scatter(x=v.index, y=v.values, name="Ton portefeuille" if EXCLUES else "Portefeuille modèle", line=dict(color="#22c55e", width=2.4)))
+        if EXCLUES: fig.add_trace(go.Scatter(x=v_sys.index, y=v_sys.values, name="Système complet", line=dict(color="#a78bfa", width=1.6)))
         for nom_, ser, col_ in [("S&P 500", D[SP], "#94a3b8"), ("Nasdaq 100", D.get("NDX"), "#60a5fa")]:
             if ser is None: continue
             x = ser.loc[DEPLOIEMENT:pd.Timestamp(asof)].dropna()

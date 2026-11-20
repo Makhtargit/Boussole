@@ -56,7 +56,9 @@
 ---
 # Annexe · historique des versions
 
-## v6.7 (19/11/2026)
+## v6.7 (19-20/11/2026)
+- La fin du cycle SOX déclarée le 16/11 est retirée (20/11) : le système décide seul de la fin des cycles.
+- Ordres en actions entières (arrondi à l'action inférieure, le reste en cash), avec le montant ; colonne « Actions · montant » dans le portefeuille modèle.
 - Ordres du jour à l'impératif en tête de la Conclusion (ACHETER / VENDRE / REMPLACER / AJUSTER / TENIR / RESTER EN CASH / INTERDIT K2), avec les montants si le capital est saisi. Onglet or : ordres à l'impératif, repères GDX hors des ordres.
 - Portefeuille modèle dans la vue d'ensemble : le système appliqué à la lettre depuis le 19/11/2026, comparé au S&P 500 et au Nasdaq 100 (boussoles/modele.py, journal fichiers/journal_modele.csv écrit chaque soir par fichiers/journal_modele.py).
 - Graphiques sur téléphone : légende sous le graphique, pas de zoom au doigt, étiquettes de niveaux sur fond.

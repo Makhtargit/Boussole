@@ -71,7 +71,6 @@ PEREMPTION_FICHIERS = {"compositions_actuelles.csv": ("Poids SOXX / IGV", 92), "
 PEREMPTION_GDX = 183   # vaut aussi pour XLP (composition SEC)   # GDX : composition SEC (NPORT), publiée avec ~60 jours de retard ; une nouvelle chaque trimestre
 
 # Décisions du trader sur les cycles (journal de décisions) : fin de cycle déclarée, appliquée à la stratégie A.
-DECISIONS_CYCLE = {
-    "SOX": dict(fin="2026-11-16", note="Cycle 2025-2026 déclaré terminé par le trader (−38 % au plus bas ; 5 baisses de −30 % sur 6 sont allées à −40 % ou plus)", source="phases_tech"),
-}
+# 20/11/2026 : la fin du cycle SOX déclarée le 16/11 est retirée — le système décide seul de la fin des cycles (sortie A).
+DECISIONS_CYCLE = {}
 DATE_CALIBRAGE = "2026-11-17"   # dernier recalibrage (recalibrage_2022, données au 13/11/2026)

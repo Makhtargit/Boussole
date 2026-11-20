@@ -49,13 +49,14 @@ def ligne_journal(D, asof, prec=None):
         if L: pos[n] = L
     return asof_, pos, B
 
-def valoriser(journal, close, fed=None):
-    """Valeur du portefeuille modèle (base 100 au déploiement) à partir du journal et des clôtures."""
+def valoriser(journal, close, fed=None, exclues=()):
+    """Valeur du portefeuille modèle (base 100 au déploiement) à partir du journal et des clôtures.
+    exclues : parts que le trader ne trade pas (leur poids reste en cash, les autres gardent leurs poids)."""
     if journal is None or journal.empty: return pd.Series(dtype=float)
     j = journal.sort_values("date").reset_index(drop=True); v = [100.0]; pic = 100.0; coupe = False
     for i in range(1, len(j)):
         d0, d1 = pd.Timestamp(j.date[i - 1]), pd.Timestamp(j.date[i])
-        pos0 = json.loads(j.positions[i - 1]); pos1 = json.loads(j.positions[i])
+        pos0 = {k: L for k, L in json.loads(j.positions[i - 1]).items() if k not in exclues}; pos1 = {k: L for k, L in json.loads(j.positions[i]).items() if k not in exclues}
         r = 0.0; inv = 0.0
         if not coupe:
             for n, L in pos0.items():
@@ -71,7 +72,7 @@ def valoriser(journal, close, fed=None):
 
 def lire_journal():
     try: return pd.read_csv(JOURNAL)
-    except Exception: return pd.DataFrame(columns=["date", "positions", "k2"])
+    except Exception: return pd.DataFrame(columns=["date", "positions", "k2", "exclues"])
 
 def completer(D, journal=None, jusqua=None, max_seances=40):
     """Ajoute au journal les séances manquantes depuis le déploiement (au plus max_seances d'un coup)."""

@@ -37,6 +37,7 @@ def calculer(_D, asof, memoire, cle):
 
 with st.sidebar:
     st.markdown("### 🧭 Boussoles")
+    st.caption("Version 6.13 · 21/11/2026 · équivalent or des niveaux GDX")
     if st.button("Mettre à jour les données", width="stretch"): charger.clear(); calculer.clear()
 D, SRC, quand = charger()
 if D["vix"].empty or D[SP].empty:

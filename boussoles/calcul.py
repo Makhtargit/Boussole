@@ -142,10 +142,11 @@ def climat(D, asof):
 
 # ---------------------------------------------------------------- état d'un marché
 def etat_break(D, asof):
-    """Break du trader (break.md, 19/11/2026).
-    Blocage K2 : le S&P clôture un mois sous sa moyenne 10 mois ET le décor de taux est allumé
+    """Break du trader (break.md, 19/11/2026 ; K2 hebdomadaire depuis le 20/11/2026, k2_frequence · k2_duree).
+    Blocage K2 : le S&P clôture une semaine (vendredi) sous sa moyenne 40 semaines ET le décor de taux est allumé
     (10 ans ≥ +1 pt / 6 mois, Fed ≥ +1 pt / 12 mois ou taux réel ≥ +0,5 pt / 12 mois) → aucune nouvelle entrée ;
-    levée après deux fins de mois de suite au-dessus de la moyenne 10 mois. La coupe à −30 % se lit sur le capital réel."""
+    levée après 8 clôtures hebdomadaires de suite au-dessus de la moyenne 40 semaines, ou 2 si le décor de taux est éteint ce vendredi
+    (levée rapide, k2_levee_taux, décision du trader du 20/11/2026). La coupe à −30 % se lit sur le capital réel."""
     sp = D[SP].loc[:asof].dropna()
     if len(sp) < 260: return None
     ix = sp.index; t10 = D["dgs10"].reindex(ix).ffill(); rr = D["dfii10"].reindex(ix).ffill()
@@ -153,19 +154,38 @@ def etat_break(D, asof):
     f12 = (ff - ff.shift(12)).reindex(ix, method="ffill") if len(ff) > 13 else pd.Series(np.nan, index=ix)
     v10, vf, vr = t10 - t10.shift(126), f12, rr - rr.shift(252)
     decor = (v10 >= SEUIL["taux10_6m"]) | (vf >= 1.0) | (vr >= SEUIL["taux_reel_12m"])
-    fm = sp.groupby([ix.year, ix.month]).tail(1)
-    d_ = fm.index[-1]; complet = ((d_ + pd.offsets.BMonthEnd(0)) - d_).days <= 1
-    fm_c = fm if complet else fm.iloc[:-1]                      # le mois en cours ne compte qu'une fois clôturé
-    m10 = fm_c.rolling(10).mean(); on_ = False; ab = 0; depuis = None
+    fw = sp.groupby(pd.Grouper(freq="W-FRI")).tail(1)
+    d_ = fw.index[-1]; complet = (d_ + pd.offsets.BDay(1)).to_period("W-FRI") != d_.to_period("W-FRI")
+    fw_c = fw if complet else fw.iloc[:-1]                      # la semaine en cours ne compte qu'une fois clôturée
+    m40 = fw_c.rolling(40).mean(); on_ = False; ab = 0; depuis = None
+    for d in fw_c.index:
+        if np.isnan(m40[d]): continue
+        b = fw_c[d] < m40[d]; ab = 0 if b else ab + 1
+        if not on_ and b and bool(decor[d]): on_ = True; depuis = d
+        elif on_ and ab >= (8 if bool(decor[d]) else 2): on_ = False; depuis = None
+    m40_proj = m40.iloc[-1] if complet else pd.concat([fw_c.iloc[-39:], sp.iloc[-1:]]).mean()     # moyenne 40 semaines si la semaine clôturait aujourd'hui
+    return dict(actif=on_, depuis=depuis, semaines_au_dessus=ab, semaines_requises=8 if bool(decor.iloc[-1]) else 2, sp=sp.iloc[-1], m40=m40_proj, ecart=sp.iloc[-1] / m40_proj - 1,
+                decor=bool(decor.iloc[-1]), taux10_6m=v10.iloc[-1], fed_12m=vf.iloc[-1], taux_reel_12m=vr.iloc[-1],
+                derniere_fin=fw_c.index[-1], sous_m40_fin=bool(fw_c.iloc[-1] < m40.iloc[-1]))
+
+def k2_mensuel(D, asof):
+    """Ancien K2 (moyenne 10 mois en clôture mensuelle, levée après 2 fins de mois) : affiché pour comparaison jusqu'à la révision de 2028 (k2_frequence)."""
+    sp = D[SP].loc[:asof].dropna()
+    if len(sp) < 260: return None
+    ix = sp.index; t10 = D["dgs10"].reindex(ix).ffill(); rr = D["dfii10"].reindex(ix).ffill()
+    ff = D.get("fedfunds", pd.Series(dtype=float)).dropna()
+    f12 = (ff - ff.shift(12)).reindex(ix, method="ffill") if len(ff) > 13 else pd.Series(np.nan, index=ix)
+    decor = ((t10 - t10.shift(126)) >= SEUIL["taux10_6m"]) | (f12 >= 1.0) | ((rr - rr.shift(252)) >= SEUIL["taux_reel_12m"])
+    fm = sp.groupby([ix.year, ix.month]).tail(1); d_ = fm.index[-1]
+    fm_c = fm if ((d_ + pd.offsets.BMonthEnd(0)) - d_).days <= 1 else fm.iloc[:-1]
+    m10 = fm_c.rolling(10).mean(); on_ = False; ab = 0
     for d in fm_c.index:
         if np.isnan(m10[d]): continue
         b = fm_c[d] < m10[d]; ab = 0 if b else ab + 1
-        if not on_ and b and bool(decor[d]): on_ = True; depuis = d
-        elif on_ and ab >= 2: on_ = False; depuis = None
-    m10_proj = m10.iloc[-1] if complet else pd.concat([fm_c.iloc[-9:], sp.iloc[-1:]]).mean()     # moyenne 10 mois si le mois clôturait aujourd'hui
-    return dict(actif=on_, depuis=depuis, mois_au_dessus=ab, sp=sp.iloc[-1], m10=m10_proj, ecart=sp.iloc[-1] / m10_proj - 1,
-                decor=bool(decor.iloc[-1]), taux10_6m=v10.iloc[-1], fed_12m=vf.iloc[-1], taux_reel_12m=vr.iloc[-1],
-                derniere_fin=fm_c.index[-1], sous_m10_fin=bool(fm_c.iloc[-1] < m10.iloc[-1]))
+        if not on_ and b and bool(decor[d]): on_ = True
+        elif on_ and ab >= 2: on_ = False
+    m10p = pd.concat([fm_c.iloc[-9:], sp.iloc[-1:]]).mean()
+    return dict(actif=on_, m10=m10p, ecart=sp.iloc[-1] / m10p - 1, derniere_fin=fm_c.index[-1])
 
 def or_vix(D, asof, O=None, fenetre=600):
     """Mines après une panique du VIX (or_vix · or_vix_sortie · or_vix_risque · or_vix_fraction ; décision du trader du 20/11/2026).

@@ -168,7 +168,7 @@ Toutes les valeurs ci-dessous sont dans `boussoles/regles.py` (`MARCHES`, `REGLA
    - × 1 en mini-correction sans S5 ;
    - × 0,5 en plus si le recul depuis le plus haut du cycle dépasse la moitié du seuil de cycle.
 3. **Limites :** la somme investie est ramenée à 100 % au plus, puis chaque part à 50 % au plus (25 % pour l'or, décision du 19/11/2026). Le reste va en cash.
-4. **Break (prioritaire, `etat_break`) :** capital à −30 % de son plus haut → tout couper ; blocage K2 (S&P sous sa moyenne 10 mois en clôture mensuelle et décor de taux allumé) → aucune part nouvelle ; −35 % → arrêt.
+4. **Break (prioritaire, `etat_break`) :** capital à −30 % de son plus haut → tout couper ; blocage K2 (S&P sous sa moyenne 40 semaines en clôture du vendredi et décor de taux allumé ; levé après 8 vendredis de suite au-dessus, ou 2 si le décor de taux s'est éteint) → aucune part nouvelle ; −35 % → arrêt.
 
 ## Calculs de l'application
 
@@ -206,7 +206,7 @@ L'application a quatre onglets et une barre latérale. Le thème est sombre (`.s
 
 | Onglet | Blocs, dans l'ordre |
 | --- | --- |
-| Vue d'ensemble | 0. **Portefeuille modèle** depuis le déploiement (KPI, positions, courbe contre S&P et NDX). 1. **Conclusion du jour** : bandeau du break, ordres du jour à l'impératif (une carte par part, dont or-VIX) et carte de la poche pétrole, puis un tableau par part (cycle, mini-cycle, décision et titres, poids et état, ce qui changerait la décision), puis les pastilles C et D. 2. **Climat du mini-cycle** : VIX et dollar. 3. **Cartes des 6 marchés** : badge selon la règle, sparkline et cône, cycle, mini-cycle, pastilles. 4. **Ce que vaut le système** : simulation et espérance réaliste |
+| Vue d'ensemble | 0. **Portefeuille modèle** depuis le déploiement (KPI, positions, courbe contre S&P et NDX). 1. **Conclusion du jour** : bandeau du break, revue du vendredi (K2 hebdomadaire et mensuel, alertes de creux, alertes de tension en contexte), ordres du jour à l'impératif (une carte par part, dont or-VIX) et carte de la poche pétrole, puis un tableau par part (cycle, mini-cycle, décision et titres, poids et état, ce qui changerait la décision), puis les pastilles C et D. 2. **Climat du mini-cycle** : VIX et dollar. 3. **Cartes des 6 marchés** : badge selon la règle, sparkline et cône, cycle, mini-cycle, pastilles. 4. **Ce que vaut le système** : simulation et espérance réaliste |
 | Marchés | Sélecteur à 6 entrées : semi-conducteurs, logiciel, Nasdaq 100, S&P 500, pétrolières, or et mines. Pour chaque marché : badge, tuiles (cycle, mini-cycle, S5, carte des prix), graphique (cours, VIX, signaux, cône), lecture par les lois, titres de la thématique. Pétrolières : régime d'accélération et Brent. Or et mines : 1. décision (conditions, graphique, sorties) ; 2. titres ; 3. matière première ; 4. repères GDX sans verdict |
 | Macro | 6 cartes : interrupteur, VIX, taux réel, crédit sur marge, institutions 13F, concentration. Puis un graphique à panneaux sur un même axe de temps, et un « Comment lire » |
 | Interroger l'historique | Choix des marchés, des signaux, des années, d'un VIX minimum et d'un retard sur le S&P → résultats moyens et tableau téléchargeable |

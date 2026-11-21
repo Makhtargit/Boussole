@@ -35,7 +35,7 @@
 | Or · rebond après panique (or-VIX) | VIX ≥ 30 dans les 20 séances puis reflux sous 85 % de son pic → cœur de 2 mines (figé à l'achat), 15 % du capital au plus dans la limite or de 25 %, si la part or est dehors et K2 éteint ; vente à la 126e séance ou si GDX perd 25 % |
 | Poche pétrole (hors système) | Ton arbitrage : jusqu'à 25 % du capital si le cash est disponible, seulement avec un catalyseur d'offre durable et l'accélération du Brent allumée ; XOM · CVX · COP, stops COP −8 %, XOM −5,4 %, CVX −5,8 % ; sortie vitesse du Brent sous zéro ou XLE −15 % du plus haut. Compte dans le capital du break, hors portefeuille modèle |
 | Poids | W1 en fin de mois (inverse de la volatilité, cash compris, plancher 5 %) × l'état du cycle de la part : cycle porteur × 1,5, couteau pris par un S5 × 0,5, fin de cycle proche × 0,5 ; total investi ≤ 100 %, 50 % au plus par part, 25 % pour l'or tant qu'il n'a pas de trades réels, le reste en cash |
-| **Break (il l'emporte sur tout)** | Capital à −30 % de son plus haut → tout couper ; retour au plus tôt 3 mois après, quand le S&P a clôturé deux fins de mois au-dessus de sa moyenne 10 mois. Blocage K2 (S&P sous sa moyenne 10 mois en clôture mensuelle et décor de taux allumé) → aucune entrée nouvelle, levé après deux fins de mois au-dessus. −35 % → arrêt du système (break) |
+| **Break (il l'emporte sur tout)** | Capital à −30 % de son plus haut → tout couper ; retour au plus tôt 3 mois après, quand le S&P a clôturé deux fins de mois au-dessus de sa moyenne 10 mois. Blocage K2 (S&P sous sa moyenne 40 semaines en clôture du vendredi et décor de taux allumé, depuis le 20/11/2026) → aucune entrée nouvelle, levé après 8 clôtures hebdomadaires de suite au-dessus, ou 2 si le décor de taux s'est éteint. −35 % → arrêt du système (break) |
 | Résultat testé | Système actuel (break, or à 25 %, cœur permanent), dans l'échantillon : 04/01/2016 → 13/11/2026 +36,2 %/an, pire baisse −25 % ; 03/01/2022 → 13/11/2026 +42,1 %/an, −19 %. Or-VIX : +0,8 à +1,2 pt/an en plus. Espérance réaliste ≈ +17 %/an, −30 %, si le régime haussier dure ; régime type 2000-2009 ≈ −50 % (hors échantillon 1995-2015, indices, avec le break : +7,1 %/an, −51 %) |
 
 ## Barre latérale
@@ -58,6 +58,15 @@
 ---
 # Annexe · historique des versions
 
+## v6.11 (20/11/2026)
+- Levée rapide de K2 (décision du trader, k2_levee_taux) : 2 vendredis au-dessus de la moyenne 40 semaines suffisent si le décor de taux est éteint ; 8 tant qu'il est allumé. Titres 2016-2026 : +36,3 %/an au lieu de +34,7 % ; indices 1995-2015 : pire baisse −33 % au lieu de −40 %.
+
+## v6.10 (20/11/2026)
+- Revue du vendredi, en tête des ordres du jour (alertes_frequence) : K2 hebdomadaire lu à la dernière clôture du vendredi, K2 mensuel (ancien) affiché pour comparaison jusqu'à la révision de 2028, alertes de creux (correction généralisée, peur du VIX) mises en avant, alertes de tension affichées comme contexte sans pouvoir d'annonce. Les ordres restent quotidiens.
+
+## v6.9 (20/11/2026)
+- Blocage K2 hebdomadaire (décision du trader du 20/11/2026, k2_frequence · k2_duree) : clôture du vendredi du S&P sous sa moyenne 40 semaines avec le décor de taux allumé ; levée après 8 clôtures hebdomadaires de suite au-dessus. Indices 1995-2015 : pire baisse −40 % au lieu de −51 % ; coût ≈ −1,6 pt/an sur 2016-2026. La coupe à −30 % garde son retour mensuel (deux fins de mois au-dessus de la moyenne 10 mois).
+
 ## v6.8 (20/11/2026)
 - Nouvelle part « Or · rebond après panique » (or-VIX, décision du trader du 20/11/2026) : quand le VIX a atteint 30 puis repasse sous 85 % de son pic, achat du cœur de 2 mines (figé au jour de l'achat), 15 % du capital au plus dans la limite or de 25 %, seulement si la part or est dehors et K2 éteint ; vente à la 126e séance ou si GDX perd 25 % depuis l'achat (or_vix · or_vix_risque · or_vix_fraction). Ordre du jour, ligne du tableau, portefeuille modèle.
 - Poche pétrole, hors système (arbitrage du trader) : carte sous les ordres du jour. Jusqu'à 25 % du capital si le cash est disponible, seulement avec un catalyseur d'offre durable et l'accélération du Brent allumée ; XOM · CVX · COP ; stops COP −8 %, XOM −5,4 %, CVX −5,8 % ; sortie vitesse du Brent sous zéro ou XLE −15 % du plus haut. Hors portefeuille modèle.
@@ -74,7 +83,7 @@
 - Téléphone : barre latérale repliée sur petit écran, tableau des positions défilant, lanceur lancer_telephone.bat (accès depuis le téléphone sur le même Wi-Fi ou par Tailscale).
 - Cœur permanent : la liste des 5 n'est plus détenue ; un couteau touché en cycle ouvert garde le cœur (coeur_permanent). Exécution à la clôture du jour du signal (timing_entree).
 - « Ce que vaut le système » : espérance et scénario 2000-2009 en premier, résultats avec leurs dates exactes (dossier sectoriel du 19/11).
-- Break du trader en tête de la Conclusion du jour : distance du capital aux −30 %, blocage K2, S&P contre sa moyenne 10 mois, décor de taux (break, simplification).
+- Break du trader en tête de la Conclusion du jour : distance du capital aux −30 %, blocage K2, S&P contre sa moyenne (40 semaines depuis v6.9), décor de taux (break, simplification).
 - Saisie du capital dans la barre latérale.
 - Part or limitée à 25 % (limite_or : coût −2,6 pts/an sur 2016-2026).
 

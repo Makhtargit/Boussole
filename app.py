@@ -6,12 +6,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from boussoles.regles import MARCHES, SEUIL, SP
 from boussoles.donnees import tout_charger
-from boussoles.calcul import tout_calculer, historique, nb, pc, cone, rang, etat_break, or_vix
+from boussoles.calcul import tout_calculer, historique, nb, pc, cone, rang, etat_break, or_vix, k2_mensuel
 from boussoles import FICHIERS
 from boussoles.modele import DEPLOIEMENT, lire_journal, completer, valoriser, ligne_journal, JOURNAL
 import json as _json
 import json
-from boussoles.titres import titres as calc_titres, THEMES, peremptions, or_titres, recalibrages, portefeuille, fige_or_vix
+from boussoles.titres import titres as calc_titres, THEMES, peremptions, or_titres, recalibrages, portefeuille, fige_or_vix, phase_temps_reel
 from boussoles.ui import CSS, COUL, FOND, badge, chip, bar, jauge, sparkline, carte
 
 st.set_page_config(page_title="Boussoles SCANOPTIMUS9", page_icon="🧭", layout="wide", initial_sidebar_state="auto")   # « auto » : barre latérale repliée sur téléphone
@@ -175,6 +175,39 @@ def alertes_decor(PF):
 
 ETATC = {"porteur": ("cycle porteur", "ok"), "couteau_s5": ("couteau · S5", "warn"), "couteau": ("correction", "mute")}
 
+def revue_du_vendredi(PF):
+    """Revue du vendredi (alertes_frequence, k2_frequence, 20/11/2026) : K2 hebdomadaire et alertes lus à la clôture du vendredi.
+    Les alertes de creux (famille D) ont une valeur mesurée ; celles de tension (famille C) sont du contexte, sans pouvoir d'annonce."""
+    sp = D[SP].loc[:asof].dropna()
+    if len(sp) < 260: return
+    fr = sp.groupby(pd.Grouper(freq="W-FRI")).tail(1).index; v_ = fr[-1]
+    if (v_ + pd.offsets.BDay(1)).to_period("W-FRI") == v_.to_period("W-FRI") and len(fr) > 1: v_ = fr[-2]     # semaine en cours pas encore close
+    B = etat_break(D, v_); Bm = k2_mensuel(D, asof)
+    vx = D["vix"].loc[:v_].dropna(); q80 = vx.iloc[-250:].quantile(0.8)
+    ph = {n: phase_temps_reel(E[n]["s"].loc[:v_], E[n]["seuil_mini"]).iloc[-1] for n in ["SOX", "Logiciel", "NDX"] if n in E}
+    t10 = D["dgs10"].loc[:v_].dropna(); rr = D["dfii10"].loc[:v_].dropna(); ff = D.get("fedfunds", pd.Series(dtype=float)).loc[:v_].dropna()
+    arme = (t10.iloc[-1] - t10.iloc[-127] >= SEUIL["taux10_6m"]) or (len(ff) > 13 and ff.iloc[-1] - ff.iloc[-13] >= 1.0)
+    nd = E["NDX"]["s"].loc[:v_] if "NDX" in E else None; sous50 = nd is not None and nd.iloc[-1] < nd.iloc[-50:].mean()
+    disp = []
+    for n in ["SOX", "Logiciel", "NDX"]:
+        if n not in E: continue
+        s_ = E[n]["s"].loc[:v_]; h21 = s_.iloc[-21:].max(); disp.append((s_.iloc[-1] <= h21 * (1 - E[n]["seuil_mini"]), s_.iloc[-1] >= h21))
+    i13 = inst_13f()
+    fam_d = [("Correction généralisée", sum(1 - x for x in ph.values()) == 3 and not (arme and sous50), "rebond du NDX +4 à +5 pts sur 3 mois en moyenne"),
+             ("Peur · VIX", vx.iloc[-1] >= q80, f"VIX {nb(vx.iloc[-1], 1)} contre 80e centile {nb(q80, 1)} · rebond +2 à +4 pts sur 3 mois")]
+    fam_c = [("Interrupteur armé", arme and not sous50), ("Taux réel", rr.iloc[-1] - rr.iloc[-253] >= SEUIL["taux_reel_12m"]),
+             ("Crédit sur marge", bool(C.get("marge_actif"))), ("Institutions 13F", i13[2] == "warn"), ("Concentration NDX", bool(C.get("concentration_60"))),
+             ("Dispersion tech", any(a for a, _ in disp) and any(b for _, b in disp))]
+    k2t = "ALLUMÉ" if B and B["actif"] else "ÉTEINT"; k2n = "bad" if B and B["actif"] else "ok"
+    lig = (f'<div class="lab">Revue du vendredi {jour(v_)}</div>'
+           f'<div style="margin-top:6px"><b>K2 (règle)</b> : <b style="color:{COUL[k2n]}">{k2t}</b> — S&P {nb(B["sp"], 0) if B else "—"} contre sa moyenne 40 semaines {nb(B["m40"], 0) if B else "—"}'
+           + (f' · {B["semaines_au_dessus"]}/{B["semaines_requises"]} vendredis au-dessus (8 si le décor de taux est allumé, 2 s’il est éteint)' if B and B["actif"] else "") + f' · décor de taux {"allumé" if B and B["decor"] else "éteint"}.'
+           f' <span class="small">K2 mensuel (ancien, pour comparaison) : {"allumé" if Bm and Bm["actif"] else "éteint"}.</span></div>'
+           '<div style="margin-top:8px"><b>Creux (à regarder)</b> : ' + " · ".join(f'{n} <b style="color:{COUL["ok"] if on else "#cbd5e1"}">{"ALLUMÉ" if on else "non"}</b>' + (f' <span class="small">({d})</span>' if on else "") for n, on, d in fam_d) + "</div>"
+           '<div class="small" style="margin-top:8px"><b>Tension (contexte, sans pouvoir d’annonce)</b> : ' + " · ".join(f'{n} {"●" if on else "○"}' for n, on in fam_c)
+           + ". Marge et 13F au rythme de leur publication.</div>")
+    md(carte(lig, "card tight", "border-left:3px solid #60a5fa"))
+
 def bandeau_break():
     """Le break l'emporte sur toutes les règles (break.md, décision du trader du 19/11/2026)."""
     B = etat_break(D, asof)
@@ -184,16 +217,16 @@ def bandeau_break():
         st.error(("RÈGLE D'ARRÊT · " if arret else "BREAK · ") + f"capital à {pc(dd)} de son plus haut : tout couper. "
                  + ("Au-delà de −35 %, on arrête le système et on le réexamine." if arret else "Retour au plus tôt 3 mois après, quand le S&P a clôturé deux fins de mois au-dessus de sa moyenne 10 mois."))
     if B and B["actif"]:
-        st.warning(f"BLOCAGE K2 depuis fin {B['depuis']:%m/%Y} : aucune nouvelle entrée (S7, S5, or). Les positions ouvertes suivent leurs règles. "
-                   f"Levée après deux fins de mois au-dessus de la moyenne 10 mois du S&P ({B['mois_au_dessus']}/2).")
+        st.warning(f"BLOCAGE K2 depuis le {B['depuis']:%d/%m/%Y} : aucune nouvelle entrée (S7, S5, or, or-VIX). Les positions ouvertes suivent leurs règles. "
+                   f"Levée après {B['semaines_requises']} clôtures hebdomadaires de suite au-dessus de la moyenne 40 semaines du S&P ({B['semaines_au_dessus']}/{B['semaines_requises']}) — 8 tant que le décor de taux est allumé, 2 dès qu'il s'éteint.")
     if not B: return
     dec = [("10 ans", B["taux10_6m"], SEUIL["taux10_6m"], "/ 6 mois"), ("Fed", B["fed_12m"], 1.0, "/ 12 mois"), ("Taux réel", B["taux_reel_12m"], SEUIL["taux_reel_12m"], "/ 12 mois")]
     dtx = " · ".join(f'{n_} {"+" if (v_ or 0) >= 0 else ""}{nb(v_)} pt {u_}{" ●" if v_ == v_ and v_ >= s_ else ""}' for n_, v_, s_, u_ in dec)
     kpi = [("Break · coupe à −30 %", "—" if dd is None else pc(dd), "mute" if dd is None else ("bad" if coupe else "warn" if dd <= -0.20 else "ok"),
             "renseigne ton capital (barre latérale)" if dd is None else f"capital / plus haut · arrêt du système à −35 %"),
            ("Blocage K2", "ACTIF" if B["actif"] else "NON", "bad" if B["actif"] else "ok",
-            "aucune entrée nouvelle" if B["actif"] else ("se déclenche si le S&P clôture le mois sous sa moyenne 10 mois" if B["decor"] else "décor de taux éteint")),
-           ("S&P / moyenne 10 mois", pc(B["ecart"]), "warn" if B["ecart"] < 0.03 else "ok", f'{nb(B["sp"], 0)} contre {nb(B["m10"], 0)} · seuil de clôture mensuelle'),
+            "aucune entrée nouvelle" if B["actif"] else ("se déclenche si le S&P clôture la semaine (vendredi) sous sa moyenne 40 semaines" if B["decor"] else "décor de taux éteint")),
+           ("S&P / moyenne 40 semaines", pc(B["ecart"]), "warn" if B["ecart"] < 0.03 else "ok", f'{nb(B["sp"], 0)} contre {nb(B["m40"], 0)} · seuil de clôture du vendredi'),
            ("Décor de taux", "ALLUMÉ" if B["decor"] else "ÉTEINT", "warn" if B["decor"] else "ok", dtx)]
     for col, (lab, v_, niv, det) in zip(st.columns(4), kpi):
         with col: md(carte(f'<div class="lab">{lab}</div><div class="num" style="font-size:24px;font-weight:800;color:{COUL[niv]};margin-top:6px">{v_}</div><div class="small" style="margin-top:4px">{det}</div>', "card tight"))
@@ -348,6 +381,8 @@ def conclusion_du_jour(PF):
     md('<div class="lab" style="margin:4px 0 6px">Break · il l’emporte sur toutes les règles</div>')
     bandeau_break()
     if not PF: st.info("Conclusion indisponible : titres ou poids non calculés."); return
+    try: revue_du_vendredi(PF)
+    except Exception as ex: st.caption(f"Revue du vendredi indisponible : {ex}")
     try: ordres_du_jour(PF)
     except Exception as ex: st.caption(f"Ordres du jour indisponibles : {ex}")
     fam_c, fam_d = alertes_decor(PF); allc = [n for n, v in fam_c if v]; alld = [n for n, v in fam_d if v]
@@ -406,7 +441,7 @@ def conclusion_du_jour(PF):
        f'<div><span class="lab" style="margin-right:8px">D · Climat de creux</span>{"".join(tag(n_, v, "ok") for n_, v in fam_d)}</div></div>')
     with st.expander("Comment lire la conclusion"):
         md('<div class="txt"><b>A</b> dit si l’on peut être investi, <b>B</b> dit quand et quoi détenir : ces deux familles seules décident. '
-           f'<b>Poids</b> : W1 de fin de mois ({jour(PF["date_poids"])}) × l’état du cycle de la part (cycle porteur × 1,5 ; couteau pris par un S5 × 0,5 ; correction sans S5 × 1 ; fin de cycle proche × 0,5 en plus), total investi ≤ 100 %, 50 % au plus par part et 25 % pour l’or tant qu’il n’a pas de trades réels, le reste en cash (allocation_cycles, limite_or). <b>Break</b> : capital à −30 % de son plus haut → tout couper ; blocage K2 (S&P sous sa moyenne 10 mois en clôture mensuelle avec un décor de taux allumé) → aucune entrée nouvelle ; −35 % → arrêt du système (break). '
+           f'<b>Poids</b> : W1 de fin de mois ({jour(PF["date_poids"])}) × l’état du cycle de la part (cycle porteur × 1,5 ; couteau pris par un S5 × 0,5 ; correction sans S5 × 1 ; fin de cycle proche × 0,5 en plus), total investi ≤ 100 %, 50 % au plus par part et 25 % pour l’or tant qu’il n’a pas de trades réels, le reste en cash (allocation_cycles, limite_or). <b>Break</b> : capital à −30 % de son plus haut → tout couper ; blocage K2 (S&P sous sa moyenne 40 semaines en clôture du vendredi avec un décor de taux allumé) → aucune entrée nouvelle, levé après 8 vendredis de suite au-dessus, ou 2 si le décor de taux s’est éteint (k2_duree · k2_levee_taux) ; −35 % → arrêt du système (break). '
            f'<b>Position</b> : cycle ouvert → cœur de 2 du dernier S5 (coeur_permanent). <b>Exécution</b> : à la clôture du jour du signal, par un ordre au cours de clôture (vers 21 h 40, heure de Paris, à vérifier selon ton courtier et l’heure d’été) ; les sorties sont des niveaux connus la veille (timing_entree). '
            f'<b>Or · rebond après panique</b> : quand le VIX a atteint 30 puis repasse sous 85 % de son pic, cœur de 2 mines, 15 % du capital au plus dans la limite or de 25 %, si la part or est dehors et K2 éteint ; vente 126 séances après ou si GDX perd 25 % (or_vix_risque). '
            f'<b>C</b> et <b>D</b> sont des alertes : elles disent où regarder, jamais quoi faire ; testées ensemble, elles ne se cumulent pas (familles_indicateurs). Si une alerte contredit la règle, la règle gagne.<br>'

@@ -190,7 +190,7 @@ def k2_mensuel(D, asof):
 def or_vix(D, asof, O=None, fenetre=600):
     """Mines après une panique du VIX (or_vix · or_vix_sortie · or_vix_risque · or_vix_fraction ; décision du trader du 20/11/2026).
     Déclencheur : le VIX a atteint 30 dans les 20 dernières séances puis reflue sous 85 % de ce pic. Achat à la clôture du jour du
-    déclencheur, si la part or n'est pas investie et si K2 est éteint. Sortie 126 séances après l'achat, ou si GDX perd 25 % depuis l'achat.
+    déclencheur, si la part or n'est pas investie (K2 ne bloque pas l'or-VIX depuis le 21/11/2026, k2_or). Sortie 126 séances après l'achat, ou si GDX perd 25 % depuis l'achat.
     Taille : 15 % du capital au plus, dans la limite or de 25 %. Mesuré sur GDX ; détenu en cœur de 2 mines."""
     g = D.get("Mines d'or (GDX)", pd.Series(dtype=float)).loc[:asof].dropna(); v = D["vix"].loc[:asof].dropna()
     if len(g) < 300 or len(v) < 300: return None
@@ -203,9 +203,6 @@ def or_vix(D, asof, O=None, fenetre=600):
                 inn = False; hist.append(dict(entree=idx[t0], sortie=idx[t], resultat=p[t] / p0 - 1, motif="6 mois" if t - t0 >= 126 else "stop −25 %"))
             continue
         if trig[t] and pos_or[t] == 0:
-            m_ = (idx[t].year, idx[t].month)
-            if m_ not in k2c: B_ = etat_break(D, idx[t]); k2c[m_] = bool(B_ and B_["actif"])
-            if k2c[m_]: bloque = idx[t]; continue
             inn = True; t0 = t; p0 = p[t]
     n = len(idx) - 1
     out = dict(actif=inn, signal=bool(trig[-1]), vix=float(vv.iloc[-1]), pic=float(vpk.iloc[-1]), seuil_reflux=float(0.85 * vpk.iloc[-1]),
@@ -483,6 +480,19 @@ def L(titre, valeur, conclusion, niveau, source, jauge=None):
     """niveau : ok (vert) · info (bleu) · warn (orange) · bad (rouge). jauge : (valeur, max, repère[, (bande basse, bande haute)])."""
     return dict(titre=titre, valeur=valeur, conclusion=conclusion, niveau=niveau, source=source, jauge=jauge)
 
+def equiv_or(D, asof, niveaux, fenetre=250):
+    """Équivalent en cours de l'or de niveaux de GDX (lecture, 21/11/2026) : sensibilité β de GDX à l'or (régression des rendements
+    quotidiens sur 250 séances, comme decrochage_mines_or), puis or ≈ or du jour × (niveau / GDX du jour)^(1/β).
+    Approximation : en krach de liquidité les mines perdent 4 à 10 fois plus que l'or (aem_wpm_or) ; l'équivalent surestime alors la baisse de l'or nécessaire."""
+    g = D.get("Mines d'or (GDX)", pd.Series(dtype=float)).loc[:asof].dropna(); o = D.get("or", pd.Series(dtype=float)).loc[:asof].dropna()
+    ix = g.index.intersection(o.index)
+    if len(ix) < fenetre + 2: return None
+    rg, ro = np.log(g[ix]).diff().iloc[-fenetre:], np.log(o[ix]).diff().iloc[-fenetre:]
+    b = float(rg.cov(ro) / ro.var())
+    if not b > 0.3: return None
+    g0, o0 = float(g.iloc[-1]), float(o.iloc[-1])
+    return dict(beta=b, gdx=g0, or_=o0, date=ix[-1], niveaux={k: (v, o0 * (v / g0) ** (1 / b)) for k, v in niveaux.items() if v})
+
 def lois_du_jour(e, c, st):
     m = e["mini"]; s = e["s"]; val = s.values; mth = e["seuil_mini"]; nom = e["nom"]; tech = MARCHES[nom]["tech"]; an = e["analogue"]
     vix = c["vix"]; aD, bD, fD = st["duree"]; aV, bV, fV = st["vitesse"]; out = []
@@ -516,10 +526,12 @@ def lois_du_jour(e, c, st):
         else: lab, nv = "INDÉCIS", "info"
         out.append(L("Creux ou continuation ?", lab, txt, nv, f"situations comparables des 6 marchés · reperes_mini_cycles", (p, 1.0, pb)))
         x = m["x_seuil_max"]; pr = rang(m["ampleur_max"], st["corr_ampleur"])
-        if x >= SEUIL["non_retour"]: cp, np_ = "Point de non-retour franchi : la correction finit le cycle dans 54-78 % des cas.", "bad"
+        gdx_ = e["nom"] == "Mines d'or (GDX)"
+        stat_nr = "les corrections de GDX au-delà de −25 % pendant un cycle de l'or n'ont jamais repris (0 sur 7, corrections_phases_or)" if gdx_ else "la correction finit le cycle dans 54-78 % des cas (tech)"
+        if x >= SEUIL["non_retour"]: cp, np_ = f"Point de non-retour franchi : {stat_nr}.", "bad"
         elif x >= SEUIL["approche"]: cp, np_ = f"Zone d'alerte : non-retour à {nb(m['niveau_non_retour'])} ({pc(m['niveau_non_retour'] / val[-1] - 1)}). Plus profonde que {pc(pr, 0, False)} des mini-corrections récentes.", "warn"
         else: cp, np_ = f"Correction ordinaire : plus profonde que {pc(pr, 0, False)} des mini-corrections récentes (médiane {pc(-np.median(st['corr_ampleur']), 0)}).", "ok"
-        out.append(L("Profondeur · point de non-retour", f"{pc(-m['ampleur_max'])} · {nb(x)} seuil{'s' if x >= 2 else ''} sur 2,5", cp, np_, f"mini_cycles_tech · {st['n_corr']} corrections", (x, 3.0, 2.5)))
+        out.append(L("Profondeur · point de non-retour", f"{pc(-m['ampleur_max'])} · {nb(x)} seuil{'s' if x >= 2 else ''} sur 2,5", cp, np_, ("corrections_phases_or" if gdx_ else f"mini_cycles_tech · {st['n_corr']} corrections"), (x, 3.0, 2.5)))
         out.append(L("Fin officielle de la correction", f"au-dessus de {nb(m['niveau_confirmation'])}",
                      f"Il faut {pc(m['niveau_confirmation'] / val[-1] - 1)} pour confirmer le mini-creux (rebond d'un seuil mini depuis le plus bas, {nb(m['plus_bas'])}).", "info", "définition des mini-cycles",
                      (val[-1] / m["plus_bas"] - 1, mth, mth)))

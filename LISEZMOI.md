@@ -59,7 +59,7 @@
 # Annexe · historique des versions
 
 ## v6.13 (21/11/2026)
-- Onglet Or : tableau « Niveaux de GDX et équivalent or » sous le graphique GDX (fin de correction, non-retour, sortie du cycle A, bascule), et l'équivalent or sur les étiquettes du graphique. Or ≈ or du jour × (niveau / GDX)^(1/β), β = sensibilité de GDX à l'or sur 250 séances (≈ 1,44). Lecture, pas une règle.
+- Onglet Or : tableau « Niveaux de GDX et équivalent or » sous le graphique GDX (fin de correction, non-retour, sortie du cycle A, bascule), et l'équivalent or sur les étiquettes du graphique ; graphique du cours de l'or avec ces niveaux convertis en or (même période que le graphique GDX). Or ≈ or du jour × (niveau / GDX)^(1/β), β = sensibilité de GDX à l'or sur 250 séances (≈ 1,44). Lecture, pas une règle.
 - Point de non-retour de GDX : la carte cite désormais la statistique des mines (corrections de GDX au-delà de −25 % pendant un cycle de l'or : 0 reprise sur 7, corrections_phases_or) au lieu de celle de la tech (54-78 %).
 
 ## v6.12 (21/11/2026)

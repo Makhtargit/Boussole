@@ -777,6 +777,22 @@ def vue_or():
             md(carte(f'<div class="lab">Niveaux de GDX et équivalent or · GDX {nb(EQ["gdx"])} · or {nb(EQ["or_"], 0)} $ · sensibilité β {nb(EQ["beta"])} (250 séances)</div>'
                      f'<table style="width:100%;margin-top:6px"><tr class="small"><td>Niveau</td><td>GDX</td><td>écart</td><td>Or ≈</td><td>écart</td></tr>{lg}</table>'
                      f'<div class="small" style="margin-top:6px">Or ≈ or du jour × (niveau / GDX)^(1/β). Lecture, pas une règle : en krach de liquidité les mines baissent 4 à 10 fois plus que l’or, et le niveau GDX peut tomber sans que l’or atteigne son équivalent.</div>', "card tight"))
+            md('<div class="lab" style="margin-top:10px">Cours de l’or avec les niveaux de GDX convertis en or</div>')
+            og = D["or"].loc[:g_["date"]].dropna().iloc[-{"3 mois": 63, "6 mois": 126, "1 an": 252, "3 ans": 756, "10 ans": 2520}[pg]:]
+            fo = go.Figure(go.Scatter(x=og.index, y=og.values, name="Or", line=dict(color="#fbbf24", width=2), hovertemplate="%{y:,.0f} $<extra>Or</extra>"))
+            CL = {"Fin de correction": COUL["ok"], "Non-retour": COUL["warn"], "Sortie du cycle (A)": COUL["bad"], "Bascule en correction": COUL["warn"]}
+            prev = None
+            for k, (v, o) in sorted(EQ["niveaux"].items(), key=lambda x: x[1][1]):
+                proche = prev is not None and abs(o / prev - 1) < 0.02
+                fo.add_hline(y=o, line=dict(color=CL.get(k, "#94a3b8"), width=1.4, dash="dash"))
+                fo.add_annotation(x=og.index[0] if not proche else og.index[len(og) // 3], y=o, text=f"{k} · or ≈ {nb(o, 0)} $ (GDX {nb(v)})", showarrow=False, xanchor="left",
+                                  yanchor="bottom" if not proche else "top", font=dict(color=CL.get(k, "#94a3b8"), size=10.5), bgcolor="rgba(10,15,28,.75)", borderpad=2)
+                prev = o
+            fo.update_layout(height=360, margin=dict(l=4, r=12, t=6, b=8), showlegend=False, **LAYOUT)
+            lo_ = min([og.min()] + [o for _, o in EQ["niveaux"].values()]); hi_ = max([og.max()] + [o for _, o in EQ["niveaux"].values()])
+            fo.update_xaxes(showgrid=False, linecolor="#1e293b"); fo.update_yaxes(gridcolor="#1a2438", zeroline=False, range=[lo_ * 0.97, hi_ * 1.03])
+            st.plotly_chart(fo, width="stretch", config=dict(displayModeBar=False))
+            md('<div class="small">Les niveaux sont ceux de GDX du jour, convertis avec la sensibilité β : ils bougent chaque jour avec GDX et l’or. Même période que le graphique GDX.</div>')
     md('<div class="sec">3 · Signaux d’entrée de la stratégie or et volatilité de l’or</div>')
     per = st.segmented_control("Période or", ["1 an", "3 ans", "10 ans", "Tout"], default="3 ans", label_visibility="collapsed") or "3 ans"
     nj = {"1 an": 252, "3 ans": 756, "10 ans": 2520, "Tout": 10 ** 6}[per]
